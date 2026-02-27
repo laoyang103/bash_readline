@@ -29,6 +29,7 @@
 
 struct data_t {
     uint32_t pid;
+    uint32_t uid;
     char comm[TASK_COMM_LEN];
     char str[OUTPUT_STR_LEN];
 };
@@ -131,6 +132,7 @@ static void handle_event(void *cb_ctx, int cpu, void *data, __u32 data_sz) {
     json_object *jobj = json_object_new_object();
     json_object_object_add(jobj, "time", json_object_new_string(time_buf));
     json_object_object_add(jobj, "pid", json_object_new_int(event->pid));
+    json_object_object_add(jobj, "uid", json_object_new_int(event->uid));
     json_object_object_add(jobj, "process", json_object_new_string(event->comm));
     json_object_object_add(jobj, "command", json_object_new_string(event->str));
     

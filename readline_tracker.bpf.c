@@ -9,6 +9,7 @@
 // Define a structure to hold the data sent to user space
 struct data_t {
     u32 pid;
+    u32 uid;
     char comm[TASK_COMM_LEN];
     char str[OUTPUT_STR_LEN];
 };
@@ -26,6 +27,7 @@ SEC("uretprobe//bin/bash:readline")
 int BPF_KRETPROBE(printret, void *ret) {
     struct data_t data = {};
     u64 id;
+    u64 current_uid_gid;
 
     // If readline returns NULL, ret (which is ctx->ax) will be 0.
     if (!ret) {
@@ -34,6 +36,8 @@ int BPF_KRETPROBE(printret, void *ret) {
 
     id = bpf_get_current_pid_tgid();
     data.pid = id >> 32;
+    current_uid_gid = bpf_get_current_uid_gid();
+    data.uid = current_uid_gid & 0xFFFFFFFF;
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
     // Read the string returned by readline
