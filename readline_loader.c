@@ -34,6 +34,16 @@ struct data_t {
     char str[OUTPUT_STR_LEN];
 };
 
+// User mapping structure for uid to username
+#define MAX_USERS 10000
+struct user_entry {
+    uint32_t uid;
+    char username[128];
+};
+
+static struct user_entry g_user_map[MAX_USERS];
+static int g_user_count = 0;
+
 static volatile bool exiting = false;
 
 // UDP Client Globals
@@ -50,6 +60,55 @@ static char g_sys_version[256] = "";
 static char g_host_address[256] = "";
 static char g_host_name[256] = "";
 
+
+static const char *uid_to_username(uint32_t uid) {
+    for (int i = 0; i < g_user_count; i++) {
+        if (g_user_map[i].uid == uid) {
+            return g_user_map[i].username;
+        }
+    }
+    return "unknown";
+}
+
+static int read_passwd_file(const char *passwd_path) {
+    FILE *fp = fopen(passwd_path, "r");
+    if (!fp) {
+        perror("Failed to open /etc/passwd");
+        return -1;
+    }
+    
+    char line[1024];
+    g_user_count = 0;
+    
+    while (fgets(line, sizeof(line), fp) && g_user_count < MAX_USERS) {
+        // /etc/passwd format: username:password:uid:gid:gecos:home:shell
+        char *saveptr = NULL;
+        char line_copy[1024];
+        strncpy(line_copy, line, sizeof(line_copy) - 1);
+        line_copy[sizeof(line_copy) - 1] = '\0';
+        
+        char *username = strtok_r(line_copy, ":", &saveptr);
+        if (!username) continue;
+        
+        char *password = strtok_r(NULL, ":", &saveptr);
+        if (!password) continue;
+        
+        char *uid_str = strtok_r(NULL, ":", &saveptr);
+        if (!uid_str) continue;
+        
+        uint32_t uid = (uint32_t)atoi(uid_str);
+        
+        // Store the mapping
+        g_user_map[g_user_count].uid = uid;
+        strncpy(g_user_map[g_user_count].username, username, sizeof(g_user_map[g_user_count].username) - 1);
+        g_user_map[g_user_count].username[sizeof(g_user_map[g_user_count].username) - 1] = '\0';
+        g_user_count++;
+    }
+    
+    fclose(fp);
+    printf("Loaded %d user entries from /etc/passwd\n", g_user_count);
+    return 0;
+}
 
 static void print_usage(const char *prog_name) {
     printf("Usage: %s [options]\n", prog_name);
@@ -133,6 +192,7 @@ static void handle_event(void *cb_ctx, int cpu, void *data, __u32 data_sz) {
     json_object_object_add(jobj, "time", json_object_new_string(time_buf));
     json_object_object_add(jobj, "pid", json_object_new_int(event->pid));
     json_object_object_add(jobj, "uid", json_object_new_int(event->uid));
+    json_object_object_add(jobj, "user", json_object_new_string(uid_to_username(event->uid)));
     json_object_object_add(jobj, "process", json_object_new_string(event->comm));
     json_object_object_add(jobj, "command", json_object_new_string(event->str));
     
@@ -258,6 +318,11 @@ int main(int argc, char **argv) {
             fprintf(stderr, "Failed to configure UDP destination\n");
             return 1;
         }
+    }
+
+    // Read /etc/passwd to map uid to usernames
+    if (read_passwd_file("/etc/passwd") != 0) {
+        fprintf(stderr, "Warning: Failed to read /etc/passwd, user field will show 'unknown'\n");
     }
 
     if (setrlimit(RLIMIT_MEMLOCK, &rlim)) { perror("setrlimit(RLIMIT_MEMLOCK)"); return 1; }
