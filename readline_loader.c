@@ -26,7 +26,6 @@
 
 #define TASK_COMM_LEN 16
 #define OUTPUT_STR_LEN 480
-#define UDP_REMOTE_PORT 8080 // default UDP port for JSON events
 
 struct data_t {
     uint32_t pid;
@@ -39,10 +38,16 @@ static volatile bool exiting = false;
 // UDP Client Globals
 static bool g_send_to_udp_server = false;
 static char g_udp_remote_host[256];
-static int g_udp_remote_port = UDP_REMOTE_PORT;
+static int g_udp_remote_port = 0;
 static int g_udp_socket = -1;
 static struct sockaddr_storage g_udp_serv_addr;
 static socklen_t g_udp_serv_addr_len = 0;
+
+// Configuration Globals
+static char g_probe_id[256] = "";
+static char g_sys_version[256] = "";
+static char g_host_address[256] = "";
+static char g_host_name[256] = "";
 
 
 static void print_usage(const char *prog_name) {
@@ -127,7 +132,13 @@ static void handle_event(void *cb_ctx, int cpu, void *data, __u32 data_sz) {
     json_object_object_add(jobj, "time", json_object_new_string(time_buf));
     json_object_object_add(jobj, "pid", json_object_new_int(event->pid));
     json_object_object_add(jobj, "process", json_object_new_string(event->comm));
-    json_object_object_add(jobj, "output", json_object_new_string(event->str));
+    json_object_object_add(jobj, "command", json_object_new_string(event->str));
+    
+    // Add configuration values to JSON
+    json_object_object_add(jobj, "gl2_source_collector", json_object_new_string(g_probe_id));
+    json_object_object_add(jobj, "PROBE_VER", json_object_new_string(g_sys_version));
+    json_object_object_add(jobj, "host", json_object_new_string(g_host_address));
+    json_object_object_add(jobj, "message", json_object_new_string(g_host_name));
 
     if (g_send_to_udp_server) {
         const char *json_event_string = json_object_to_json_string_ext(jobj, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
@@ -217,7 +228,18 @@ int main(int argc, char **argv) {
                 g_udp_remote_host[sizeof(g_udp_remote_host)-1] = '\0';
                 g_udp_remote_port = atoi(colon + 1);
                 g_send_to_udp_server = true;
-                break; // only one relevant entry expected
+            } else if (strcmp(key, "probe-id") == 0) {
+                strncpy(g_probe_id, value, sizeof(g_probe_id)-1);
+                g_probe_id[sizeof(g_probe_id)-1] = '\0';
+            } else if (strcmp(key, "sys-version") == 0) {
+                strncpy(g_sys_version, value, sizeof(g_sys_version)-1);
+                g_sys_version[sizeof(g_sys_version)-1] = '\0';
+            } else if (strcmp(key, "host-address") == 0) {
+                strncpy(g_host_address, value, sizeof(g_host_address)-1);
+                g_host_address[sizeof(g_host_address)-1] = '\0';
+            } else if (strcmp(key, "host-name") == 0) {
+                strncpy(g_host_name, value, sizeof(g_host_name)-1);
+                g_host_name[sizeof(g_host_name)-1] = '\0';
             }
         }
         fclose(cf);
@@ -247,7 +269,7 @@ int main(int argc, char **argv) {
     if (err) { fprintf(stderr, "Failed to attach BPF skeleton: %d (%s)\n", err, strerror(-err)); goto cleanup; }
 
     printf("eBPF program attached. Waiting for events...\n");
-    if (g_send_to_udp_server) printf("UDP output: %s:%d\n", g_udp_remote_host, UDP_REMOTE_PORT);
+    if (g_send_to_udp_server) printf("UDP output: %s:%d\n", g_udp_remote_host, g_udp_remote_port);
 
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
